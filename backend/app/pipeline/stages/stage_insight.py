@@ -7,30 +7,21 @@ Falls back to template-based insights if the AI call fails.
 
 from app.agents.insight_generation_agent import InsightGenerationAgent, InsightGenerationInput
 from app.pipeline.pipeline_context import PipelineContext
-from app.pipeline.pipeline_state import PipelineState
-from app.pipeline.schemas import (
-    AnomalyAnalysis,
-    CampaignEvaluationResult,
-    InsightGenerationResult,
-    KPIResult,
-    PipelineStage,
-    TrendAnalysis,
-)
+from app.pipeline.schemas import InsightGenerationResult
+from app.pipeline.stages import BaseStage
 
 
-async def execute(
-    kpis: KPIResult,
-    trends: TrendAnalysis,
-    anomalies: AnomalyAnalysis,
-    evaluation: CampaignEvaluationResult,
-    context: PipelineContext,
-    state: PipelineState,
-) -> InsightGenerationResult:
+class InsightGenerationStage(BaseStage):
     """Generate AI-powered insights."""
-    state.mark_running("insight_generation")
-    context.report_progress(PipelineStage.INSIGHT_GENERATION, 55, "Generating insights...")
 
-    try:
+    name = "insight_generation"
+
+    async def run(self, context: PipelineContext) -> InsightGenerationResult:
+        kpis = context.get_stage_output("kpi_computation")
+        trends = context.get_stage_output("trend_detection")
+        anomalies = context.get_stage_output("anomaly_detection")
+        evaluation = context.get_stage_output("campaign_evaluation")
+
         agent = InsightGenerationAgent(context.anthropic_client)
         result = await agent.run(InsightGenerationInput(
             kpis=kpis,
@@ -41,8 +32,4 @@ async def execute(
             ai_model=context.ai_model,
         ))
         context.add_token_usage(result.tokens_used)
-        state.mark_completed("insight_generation", result)
         return result
-    except Exception as e:
-        state.mark_failed("insight_generation", str(e))
-        raise

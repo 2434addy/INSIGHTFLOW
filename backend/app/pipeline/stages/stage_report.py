@@ -7,51 +7,24 @@ Computes total token usage and AI cost estimates.
 
 from app.agents.report_generation_agent import ReportAssemblyInput, ReportGenerationAgent
 from app.pipeline.pipeline_context import PipelineContext
-from app.pipeline.pipeline_state import PipelineState
-from app.pipeline.schemas import (
-    AnomalyAnalysis,
-    CampaignEvaluationResult,
-    InsightGenerationResult,
-    KPIResult,
-    PipelineResult,
-    PipelineStage,
-    RecommendationResult,
-    ReportRequest,
-    TrendAnalysis,
-    ValidationResult,
-)
+from app.pipeline.schemas import PipelineResult
+from app.pipeline.stages import BaseStage
 
 
-async def execute(
-    request: ReportRequest,
-    validation: ValidationResult,
-    kpis: KPIResult,
-    trends: TrendAnalysis,
-    anomalies: AnomalyAnalysis,
-    evaluation: CampaignEvaluationResult,
-    insights: InsightGenerationResult,
-    recommendations: RecommendationResult,
-    context: PipelineContext,
-    state: PipelineState,
-) -> PipelineResult:
+class ReportAssemblyStage(BaseStage):
     """Assemble the final report from all stage outputs."""
-    state.mark_running("report_assembly")
-    context.report_progress(PipelineStage.REPORT_ASSEMBLY, 90, "Assembling report...")
 
-    try:
+    name = "report_assembly"
+
+    async def run(self, context: PipelineContext) -> PipelineResult:
         agent = ReportGenerationAgent()
-        result = await agent.run(ReportAssemblyInput(
-            request=request,
-            validation=validation,
-            kpis=kpis,
-            trends=trends,
-            anomalies=anomalies,
-            evaluation=evaluation,
-            insights=insights,
-            recommendations=recommendations,
+        return await agent.run(ReportAssemblyInput(
+            request=context.request,
+            validation=context.get_stage_output("data_validation"),
+            kpis=context.get_stage_output("kpi_computation"),
+            trends=context.get_stage_output("trend_detection"),
+            anomalies=context.get_stage_output("anomaly_detection"),
+            evaluation=context.get_stage_output("campaign_evaluation"),
+            insights=context.get_stage_output("insight_generation"),
+            recommendations=context.get_stage_output("recommendation_generation"),
         ))
-        state.mark_completed("report_assembly", result)
-        return result
-    except Exception as e:
-        state.mark_failed("report_assembly", str(e))
-        raise

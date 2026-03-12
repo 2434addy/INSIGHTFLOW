@@ -7,34 +7,22 @@ based on insights, trends, and campaign performance data.
 
 from app.agents.recommendation_agent import RecommendationAgent, RecommendationInput
 from app.pipeline.pipeline_context import PipelineContext
-from app.pipeline.pipeline_state import PipelineState
-from app.pipeline.schemas import (
-    AnomalyAnalysis,
-    CampaignEvaluationResult,
-    InsightGenerationResult,
-    KPIResult,
-    PipelineStage,
-    RecommendationResult,
-    TrendAnalysis,
-)
+from app.pipeline.schemas import RecommendationResult
+from app.pipeline.stages import BaseStage
 
 
-async def execute(
-    kpis: KPIResult,
-    trends: TrendAnalysis,
-    anomalies: AnomalyAnalysis,
-    evaluation: CampaignEvaluationResult,
-    insights: InsightGenerationResult,
-    context: PipelineContext,
-    state: PipelineState,
-) -> RecommendationResult:
+class RecommendationGenerationStage(BaseStage):
     """Generate AI-powered recommendations."""
-    state.mark_running("recommendation_generation")
-    context.report_progress(
-        PipelineStage.RECOMMENDATION_GENERATION, 70, "Generating recommendations..."
-    )
 
-    try:
+    name = "recommendation_generation"
+
+    async def run(self, context: PipelineContext) -> RecommendationResult:
+        kpis = context.get_stage_output("kpi_computation")
+        trends = context.get_stage_output("trend_detection")
+        anomalies = context.get_stage_output("anomaly_detection")
+        evaluation = context.get_stage_output("campaign_evaluation")
+        insights = context.get_stage_output("insight_generation")
+
         agent = RecommendationAgent(context.anthropic_client)
         result = await agent.run(RecommendationInput(
             kpis=kpis,
@@ -46,8 +34,4 @@ async def execute(
             ai_model=context.ai_model,
         ))
         context.add_token_usage(result.tokens_used)
-        state.mark_completed("recommendation_generation", result)
         return result
-    except Exception as e:
-        state.mark_failed("recommendation_generation", str(e))
-        raise

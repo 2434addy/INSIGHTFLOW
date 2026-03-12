@@ -83,6 +83,5 @@ class PaginatedResponse(BaseModel, Generic[T]):
 class HealthResponse(BaseModel):
     """Health check response."""
 
-    status: str = "healthy"
-    version: str
-    environment: str
+    status: str = "ok"
+    service: str = "InsightFlow API"

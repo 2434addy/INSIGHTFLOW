@@ -266,6 +266,14 @@ class AnomalyAnalysis(BaseModel):
     missing_dates: list[date] = Field(default_factory=list)
 
 
+class DataAnalysisResult(BaseModel):
+    """Combined output of the DataAnalysisAgent (KPIs + trends + anomalies)."""
+
+    kpis: KPIResult
+    trends: TrendAnalysis
+    anomalies: AnomalyAnalysis
+
+
 # ── Campaign Evaluation ─────────────────────────────────────────
 
 

@@ -6,14 +6,13 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_health_check_returns_200(client: AsyncClient) -> None:
-    """Health check should return status, version, and environment."""
+    """Health check should return status and service name."""
     response = await client.get("/v1/health")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "healthy"
-    assert "version" in data
-    assert "environment" in data
+    assert data["status"] == "ok"
+    assert data["service"] == "InsightFlow API"
 
 
 @pytest.mark.asyncio

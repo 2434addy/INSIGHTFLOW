@@ -10,24 +10,16 @@ from app.agents.campaign_evaluation_agent import (
     CampaignEvaluationInput,
 )
 from app.pipeline.pipeline_context import PipelineContext
-from app.pipeline.pipeline_state import PipelineState
-from app.pipeline.schemas import CampaignEvaluationResult, KPIResult, PipelineStage
+from app.pipeline.schemas import CampaignEvaluationResult
+from app.pipeline.stages import BaseStage
 
 
-async def execute(
-    kpis: KPIResult,
-    context: PipelineContext,
-    state: PipelineState,
-) -> CampaignEvaluationResult:
+class CampaignEvaluationStage(BaseStage):
     """Evaluate and tier-classify all campaigns."""
-    state.mark_running("campaign_evaluation")
-    context.report_progress(PipelineStage.CAMPAIGN_EVALUATION, 40, "Evaluating campaigns...")
 
-    try:
+    name = "campaign_evaluation"
+
+    async def run(self, context: PipelineContext) -> CampaignEvaluationResult:
+        kpis = context.get_stage_output("kpi_computation")
         agent = CampaignEvaluationAgent()
-        result = await agent.run(CampaignEvaluationInput(kpis=kpis))
-        state.mark_completed("campaign_evaluation", result)
-        return result
-    except Exception as e:
-        state.mark_failed("campaign_evaluation", str(e))
-        raise
+        return await agent.run(CampaignEvaluationInput(kpis=kpis))

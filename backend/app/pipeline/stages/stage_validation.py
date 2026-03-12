@@ -7,24 +7,15 @@ and business rule compliance before entering the analytics pipeline.
 
 from app.agents.data_validation_agent import DataValidationAgent, DataValidationInput
 from app.pipeline.pipeline_context import PipelineContext
-from app.pipeline.pipeline_state import PipelineState
-from app.pipeline.schemas import MetricRecord, PipelineStage, ValidationResult
+from app.pipeline.schemas import ValidationResult
+from app.pipeline.stages import BaseStage
 
 
-async def execute(
-    records: list[MetricRecord],
-    context: PipelineContext,
-    state: PipelineState,
-) -> ValidationResult:
-    """Run data validation and return the validation result."""
-    state.mark_running("data_validation")
-    context.report_progress(PipelineStage.DATA_VALIDATION, 5, "Validating data...")
+class DataValidationStage(BaseStage):
+    """Validate incoming metric records."""
 
-    try:
+    name = "data_validation"
+
+    async def run(self, context: PipelineContext) -> ValidationResult:
         agent = DataValidationAgent()
-        result = await agent.run(DataValidationInput(records=records))
-        state.mark_completed("data_validation", result)
-        return result
-    except Exception as e:
-        state.mark_failed("data_validation", str(e))
-        raise
+        return await agent.run(DataValidationInput(records=context.records))
