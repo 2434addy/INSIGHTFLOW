@@ -25,6 +25,7 @@ logger = get_logger(__name__)
 class PlatformType(str, Enum):
     META_ADS = "meta_ads"
     GOOGLE_ADS = "google_ads"
+    TIKTOK_ADS = "tiktok_ads"
     SHOPIFY = "shopify"
     GA4 = "ga4"
 

@@ -67,7 +67,7 @@ async def test_register_weak_password(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_login_success(client: AsyncClient) -> None:
-    """Successful login returns an access token."""
+    """Successful login returns an access token and sets refresh cookie."""
     # Register first
     await client.post(
         "/v1/auth/register",
@@ -93,6 +93,12 @@ async def test_login_success(client: AsyncClient) -> None:
     assert "access_token" in data
     assert data["token_type"] == "bearer"
     assert data["expires_in"] > 0
+
+    # Verify refresh token cookie is set
+    cookies = response.cookies
+    # httpx may not expose httponly cookies directly — check set-cookie header
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "refresh_token" in set_cookie or "refresh_token" in cookies
 
 
 @pytest.mark.asyncio
@@ -167,3 +173,77 @@ async def test_me_invalid_token(client: AsyncClient) -> None:
         headers={"Authorization": "Bearer invalid.token.here"},
     )
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_security_headers_present(client: AsyncClient) -> None:
+    """All API responses must include security headers."""
+    response = await client.get("/v1/health")
+
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Frame-Options") == "DENY"
+    assert response.headers.get("X-XSS-Protection") == "1; mode=block"
+    assert response.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+    assert "Content-Security-Policy" in response.headers
+    assert response.headers.get("X-Permitted-Cross-Domain-Policies") == "none"
+
+
+@pytest.mark.asyncio
+async def test_api_responses_not_cached(client: AsyncClient) -> None:
+    """API responses must include Cache-Control: no-store."""
+    response = await client.get("/v1/health")
+
+    assert "no-store" in response.headers.get("Cache-Control", "")
+
+
+@pytest.mark.asyncio
+async def test_request_id_in_response(client: AsyncClient) -> None:
+    """All responses must include X-Request-ID for tracing."""
+    response = await client.get("/v1/health")
+
+    assert "X-Request-ID" in response.headers
+    # Verify it's a valid UUID-like string
+    assert len(response.headers["X-Request-ID"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_account_lockout_after_failed_attempts(client: AsyncClient) -> None:
+    """Account should be locked after failed login attempts.
+
+    Note: the rate limiter (5/15min for auth endpoints) may trigger before
+    the account lockout. Both are valid security mechanisms. We verify that
+    the user is blocked — either by rate limiting (429) or account lockout (401).
+    """
+    # Register
+    await client.post(
+        "/v1/auth/register",
+        json={
+            "email": "lockout@agency.com",
+            "password": "SecureP@ssw0rd123!",
+            "full_name": "Lockout User",
+            "agency_name": "Lockout Agency",
+        },
+    )
+
+    # Fail multiple times — expect 401 (auth error) or 429 (rate limited)
+    blocked = False
+    for i in range(6):
+        response = await client.post(
+            "/v1/auth/login",
+            json={"email": "lockout@agency.com", "password": "WrongPassword1!"},
+        )
+        if response.status_code == 429:
+            blocked = True
+            break
+        assert response.status_code == 401
+
+    # If rate limiter didn't kick in, try with correct password — should be locked
+    if not blocked:
+        response = await client.post(
+            "/v1/auth/login",
+            json={"email": "lockout@agency.com", "password": "SecureP@ssw0rd123!"},
+        )
+        assert response.status_code in (401, 429)
+    else:
+        # Rate limiter caught the brute force — this is also correct behavior
+        assert blocked

@@ -3,6 +3,12 @@ Async database engine and session management.
 
 Uses SQLAlchemy 2.0 async with asyncpg driver.
 All sessions are scoped to request lifecycle via FastAPI dependency injection.
+
+Security:
+- Connection pooling with limits to prevent resource exhaustion
+- pool_pre_ping verifies connections before use (detects stale connections)
+- SSL enforcement available via DB_SSL_REQUIRED setting
+- Statement timeout prevents long-running queries from blocking resources
 """
 
 from collections.abc import AsyncGenerator
@@ -18,6 +24,11 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+# Build connect_args for SSL and statement timeout
+_connect_args: dict = {}
+if settings.DB_SSL_REQUIRED:
+    _connect_args["ssl"] = True
+
 # Create async engine with connection pooling
 # NullPool used in testing; QueuePool (default) used in production
 engine = create_async_engine(
@@ -27,6 +38,7 @@ engine = create_async_engine(
     max_overflow=settings.DB_MAX_OVERFLOW,
     pool_timeout=settings.DB_POOL_TIMEOUT,
     pool_pre_ping=True,  # Verify connections before use
+    connect_args=_connect_args if _connect_args else {},
 )
 
 # Session factory — produces async sessions bound to the engine

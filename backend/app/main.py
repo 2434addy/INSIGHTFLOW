@@ -2,18 +2,23 @@
 InsightFlow API — Application entry point.
 
 Creates and configures the FastAPI application with:
-- CORS middleware
+- CORS middleware (origins from config, never wildcard)
+- Security headers middleware (OWASP)
+- Rate limiting middleware
 - Request context middleware (distributed tracing)
+- Request body size limit
 - Global error handlers (RFC 7807 responses)
 - Health check and versioned API routers
 - Startup/shutdown lifecycle hooks
+- security.txt at /.well-known/security.txt
 """
 
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import PlainTextResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
@@ -28,6 +33,7 @@ from app.middleware.error_handler import (
 )
 from app.middleware.rate_limiter import RateLimiterMiddleware
 from app.middleware.request_context import RequestContextMiddleware
+from app.middleware.request_size import RequestSizeLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 
 settings = get_settings()
@@ -40,6 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     Startup:
     - Initialize structured logging
+    - Validate configuration safety
     - Log application start
 
     Shutdown:
@@ -54,6 +61,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         environment=settings.ENVIRONMENT,
         debug=settings.DEBUG,
     )
+
+    if settings.is_development and settings.SECRET_KEY == "CHANGE-ME-IN-PRODUCTION-use-openssl-rand-hex-64":
+        await logger.awarning(
+            "Using default SECRET_KEY — acceptable for development only"
+        )
 
     yield
 
@@ -72,6 +84,7 @@ def create_app() -> FastAPI:
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
         description="AI-powered marketing analytics and report generation platform",
+        # Swagger UI disabled in production — no schema exposure
         docs_url="/docs" if settings.is_development else None,
         redoc_url="/redoc" if settings.is_development else None,
         openapi_url="/openapi.json" if settings.is_development else None,
@@ -79,6 +92,8 @@ def create_app() -> FastAPI:
     )
 
     # ── Middleware (order matters — outermost first) ───
+
+    # CORS — allow only configured frontend origins, never wildcard
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,
@@ -87,8 +102,17 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Organization-ID"],
         max_age=86400,
     )
+
+    # Security headers (OWASP)
     app.add_middleware(SecurityHeadersMiddleware)
+
+    # Rate limiting per IP + route category
     app.add_middleware(RateLimiterMiddleware)
+
+    # Request body size limit (default 1 MB)
+    app.add_middleware(RequestSizeLimitMiddleware)
+
+    # Request context binding (distributed tracing via X-Request-ID)
     app.add_middleware(RequestContextMiddleware)
 
     # ── Exception Handlers ────────────────────────────
@@ -98,6 +122,18 @@ def create_app() -> FastAPI:
 
     # ── Routers ───────────────────────────────────────
     app.include_router(api_router)
+
+    # ── Well-known endpoints ──────────────────────────
+
+    @app.get("/.well-known/security.txt", include_in_schema=False)
+    async def security_txt() -> PlainTextResponse:
+        """RFC 9116 security.txt — responsible disclosure contact."""
+        return PlainTextResponse(
+            "Contact: security@insightflow.app\n"
+            "Preferred-Languages: en\n"
+            "Canonical: https://insightflow.app/.well-known/security.txt\n"
+            "Policy: https://insightflow.app/security-policy\n"
+        )
 
     return app
 

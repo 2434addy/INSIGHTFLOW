@@ -28,11 +28,16 @@ from app.core.config import get_settings
 from app.pipeline.pipeline_context import PipelineContext
 from app.pipeline.pipeline_state import PipelineState, StageStatus
 from app.pipeline.schemas import (
+    AnomalyAnalysis,
+    CampaignEvaluationResult,
+    InsightGenerationResult,
     MetricRecord,
     PipelineProgress,
     PipelineResult,
     PipelineStage,
+    RecommendationResult,
     ReportRequest,
+    TrendAnalysis,
 )
 from app.pipeline.stages import BaseStage
 from app.pipeline.stages.stage_anomaly import AnomalyDetectionStage
@@ -86,6 +91,23 @@ STAGE_DEPS: dict[str, list[str]] = {
     "insight_generation": ["campaign_evaluation"],
     "recommendation_generation": ["insight_generation"],
     "report_assembly": ["recommendation_generation"],
+}
+
+# Stages that must succeed for the pipeline to produce any output.
+# Non-critical stages use fallback (empty) outputs on failure.
+CRITICAL_STAGES: frozenset[str] = frozenset({
+    "data_validation",
+    "kpi_computation",
+    "report_assembly",
+})
+
+# Default empty outputs for non-critical stages when they fail.
+_STAGE_FALLBACKS: dict[str, Any] = {
+    "trend_detection": TrendAnalysis(),
+    "anomaly_detection": AnomalyAnalysis(),
+    "campaign_evaluation": CampaignEvaluationResult(),
+    "insight_generation": InsightGenerationResult(),
+    "recommendation_generation": RecommendationResult(),
 }
 
 STAGE_PROGRESS: dict[str, tuple[PipelineStage, int, str]] = {
@@ -356,6 +378,23 @@ class PipelineRunner:
 
         except Exception as exc:
             stage_ms = int((time.monotonic() - stage_start) * 1000)
+
+            # Non-critical stages produce fallback outputs instead of
+            # crashing the pipeline.
+            if stage_name not in CRITICAL_STAGES and stage_name in _STAGE_FALLBACKS:
+                fallback = _STAGE_FALLBACKS[stage_name]
+                state.mark_completed(stage_name, fallback)
+
+                await log.awarning(
+                    "Stage failed — using fallback output",
+                    stage=stage_name,
+                    duration_ms=stage_ms,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+
+                return fallback
+
             state.mark_failed(stage_name, str(exc))
 
             await log.aerror(

@@ -30,10 +30,15 @@ from app.pipeline.runner import (
     PipelineValidationError,
 )
 from app.pipeline.schemas import (
+    AnomalyAnalysis,
+    CampaignEvaluationResult,
+    InsightGenerationResult,
     MetricRecord,
     PipelineProgress,
     PipelineStage,
+    RecommendationResult,
     ReportRequest,
+    TrendAnalysis,
 )
 
 # ── Fixtures ──────────────────────────────────────────────────────
@@ -494,3 +499,164 @@ class TestErrorPropagation:
         except PipelineValidationError as e:
             assert e.stage == "input_validation"
             assert e.report_id == request.report_id
+
+
+# ── Stage Fallback Tests ─────────────────────────────────────────
+
+
+class TestStageFallbacks:
+    """Non-critical stages should produce fallback outputs instead of crashing."""
+
+    @pytest.mark.asyncio
+    async def test_trend_failure_uses_fallback(self):
+        """If trend detection fails, pipeline continues with empty TrendAnalysis."""
+        records = _make_records(num_days=30, num_campaigns=2)
+        request = _make_request()
+
+        runner = PipelineRunner(anthropic_client=None)
+
+        # Force trend stage to raise
+        original_run = runner._stages["trend_detection"].run
+
+        async def failing_stage(ctx):
+            raise RuntimeError("Trend model exploded")
+
+        runner._stages["trend_detection"].run = failing_stage
+
+        result = await runner.run(request, records)
+
+        assert result.trends == TrendAnalysis()
+        assert len(result.trends.trends) == 0
+        # Rest of pipeline still completes
+        assert result.anomalies is not None
+        assert result.report_id == request.report_id
+
+    @pytest.mark.asyncio
+    async def test_anomaly_failure_uses_fallback(self):
+        """If anomaly detection fails, pipeline continues with empty AnomalyAnalysis."""
+        records = _make_records(num_days=30, num_campaigns=2)
+        request = _make_request()
+
+        runner = PipelineRunner(anthropic_client=None)
+
+        async def failing_stage(ctx):
+            raise ValueError("Z-score computation failed")
+
+        runner._stages["anomaly_detection"].run = failing_stage
+
+        result = await runner.run(request, records)
+
+        assert result.anomalies == AnomalyAnalysis()
+        assert result.trends is not None
+
+    @pytest.mark.asyncio
+    async def test_insight_failure_uses_fallback(self):
+        """If insight generation fails, pipeline continues with empty InsightGenerationResult."""
+        records = _make_records(num_days=30, num_campaigns=2)
+        request = _make_request()
+
+        runner = PipelineRunner(anthropic_client=None)
+
+        async def failing_stage(ctx):
+            raise RuntimeError("AI provider down")
+
+        runner._stages["insight_generation"].run = failing_stage
+
+        result = await runner.run(request, records)
+
+        assert result.insights == InsightGenerationResult()
+        assert len(result.recommendations.recommendations) >= 0
+
+    @pytest.mark.asyncio
+    async def test_recommendation_failure_uses_fallback(self):
+        """If recommendation generation fails, pipeline continues."""
+        records = _make_records(num_days=30, num_campaigns=2)
+        request = _make_request()
+
+        runner = PipelineRunner(anthropic_client=None)
+
+        async def failing_stage(ctx):
+            raise RuntimeError("Template missing")
+
+        runner._stages["recommendation_generation"].run = failing_stage
+
+        result = await runner.run(request, records)
+
+        assert result.recommendations == RecommendationResult()
+
+    @pytest.mark.asyncio
+    async def test_campaign_evaluation_failure_uses_fallback(self):
+        """If campaign evaluation fails, pipeline continues."""
+        records = _make_records(num_days=30, num_campaigns=2)
+        request = _make_request()
+
+        runner = PipelineRunner(anthropic_client=None)
+
+        async def failing_stage(ctx):
+            raise RuntimeError("Segmentation error")
+
+        runner._stages["campaign_evaluation"].run = failing_stage
+
+        result = await runner.run(request, records)
+
+        assert result.campaign_evaluation == CampaignEvaluationResult()
+
+    @pytest.mark.asyncio
+    async def test_critical_stage_failure_still_raises(self):
+        """Critical stages (data_validation, kpi_computation, report_assembly) must crash."""
+        records = _make_records(num_days=30, num_campaigns=2)
+        request = _make_request()
+
+        runner = PipelineRunner(anthropic_client=None)
+
+        async def failing_stage(ctx):
+            raise RuntimeError("KPI computation broken")
+
+        runner._stages["kpi_computation"].run = failing_stage
+
+        with pytest.raises(PipelineError, match="KPI computation broken"):
+            await runner.run(request, records)
+
+    @pytest.mark.asyncio
+    async def test_fallback_stage_marked_completed_in_state(self):
+        """A stage that used a fallback should be marked completed, not failed."""
+        records = _make_records(num_days=30, num_campaigns=2)
+        request = _make_request()
+        state = PipelineState(report_id=request.report_id)
+
+        runner = PipelineRunner(anthropic_client=None)
+
+        async def failing_stage(ctx):
+            raise RuntimeError("Trend exploded")
+
+        runner._stages["trend_detection"].run = failing_stage
+
+        await runner.run(request, records, state=state)
+
+        assert state.is_completed("trend_detection")
+        assert state.is_finished
+        assert not state.has_failures
+
+    @pytest.mark.asyncio
+    async def test_multiple_non_critical_failures_still_completes(self):
+        """Pipeline completes even when multiple non-critical stages fail."""
+        records = _make_records(num_days=30, num_campaigns=2)
+        request = _make_request()
+
+        runner = PipelineRunner(anthropic_client=None)
+
+        async def failing_stage(ctx):
+            raise RuntimeError("boom")
+
+        runner._stages["trend_detection"].run = failing_stage
+        runner._stages["anomaly_detection"].run = failing_stage
+        runner._stages["insight_generation"].run = failing_stage
+        runner._stages["recommendation_generation"].run = failing_stage
+
+        result = await runner.run(request, records)
+
+        assert result.trends == TrendAnalysis()
+        assert result.anomalies == AnomalyAnalysis()
+        assert result.insights == InsightGenerationResult()
+        assert result.recommendations == RecommendationResult()
+        assert result.report_id == request.report_id

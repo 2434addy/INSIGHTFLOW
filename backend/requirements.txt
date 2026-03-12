@@ -1,45 +1,45 @@
 # ── Core Framework ──────────────────────────────────────────
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-gunicorn==23.0.0
+fastapi>=0.115.6
+uvicorn[standard]>=0.34.0
+gunicorn>=23.0.0
 
 # ── Database ───────────────────────────────────────────────
-sqlalchemy[asyncio]==2.0.36
-asyncpg==0.30.0
-alembic==1.14.1
-greenlet==3.1.1
+sqlalchemy[asyncio]>=2.0.36
+asyncpg>=0.30.0
+alembic>=1.14.1
+greenlet>=3.1.1
 
 # ── Validation & Serialization ─────────────────────────────
-pydantic==2.10.4
-pydantic-settings==2.7.1
-email-validator==2.2.0
+pydantic>=2.5.0
+pydantic-settings>=2.7.1
+email-validator>=2.2.0
 
 # ── Authentication & Security ──────────────────────────────
-pyjwt[crypto]==2.10.1
-passlib[bcrypt]==1.7.4
-bcrypt==4.2.1
-cryptography==44.0.0
+pyjwt[crypto]>=2.10.1
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.2.1
+cryptography>=44.0.0
 
 # ── Task Queue ─────────────────────────────────────────────
-celery[redis]==5.4.0
-redis==5.2.1
+celery[redis]>=5.4.0
+redis>=5.2.1
 
 # ── HTTP Client (for platform API integrations) ────────────
-httpx==0.28.1
+httpx>=0.28.1
 
 # ── Logging ────────────────────────────────────────────────
-structlog==24.4.0
+structlog>=24.4.0
 
 # ── Testing ────────────────────────────────────────────────
-pytest==8.3.4
-pytest-asyncio==0.25.0
-pytest-cov==6.0.0
-httpx==0.28.1
+pytest>=8.3.4
+pytest-asyncio>=0.25.0
+pytest-cov>=6.0.0
+httpx>=0.28.1
 
 # ── Linting & Formatting ──────────────────────────────────
-ruff==0.8.6
-mypy==1.14.1
+ruff>=0.8.6
+mypy>=1.14.1
 
 # ── Utilities ──────────────────────────────────────────────
-python-multipart==0.0.20
-python-dotenv==1.0.1
+python-multipart>=0.0.20
+python-dotenv>=1.0.1
